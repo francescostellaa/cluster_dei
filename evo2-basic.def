@@ -1,0 +1,24 @@
+Bootstrap: docker
+From: nvcr.io/nvidia/pytorch:25.04-py3
+
+%post
+    # Update and install packages
+    apt-get update && apt-get install -y \
+        git \
+        python3-pip \
+        python3-tomli && \
+        rm -rf /var/lib/apt/lists/*
+
+    # Install flash-attn and evo2
+    pip install evo2
+
+    # Create the working directory
+    mkdir -p /workdir
+
+%runscript
+    cd /workdir
+    if [ $# -eq 0 ]; then
+        exec /bin/bash
+    else
+        exec "$@"
+    fi

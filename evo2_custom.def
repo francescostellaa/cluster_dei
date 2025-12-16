@@ -1,0 +1,82 @@
+Bootstrap: docker
+From: nvidia/cuda:12.8.0-devel-ubuntu22.04
+Stage: base
+
+%labels
+    Author "Mikele Milia"
+    Version "0.1"
+    Description "evo2 singularity container with custom environment using uv"
+
+%help
+    This container sets up a uv-based Python environment for running the Evo2 model.
+    Requires NVIDIA GPUs (compute >= 8.9).
+
+    Build (as root):
+        singularity build evo2.sif evo2_container.def
+
+    Run (GPU-enabled hosts):
+        singularity run --nv evo2.sif [args...]
+
+%environment
+
+    export VENV_FOLDER="/opt/evo2_venv"
+    export VIRTUAL_ENV="$VENV_FOLDER"
+    export PATH="$VENV_FOLDER/bin:$PATH"
+    export PATH="/tmp/uv-bin:$PATH"
+
+    export PYTHONNOUSERSITE=1
+
+%post
+
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Update and upgrade the system
+    apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates cmake curl cudnn9-cuda-12 \
+        gcc git \
+        ninja-build \
+        software-properties-common \
+        wget \
+        zlib1g 
+
+    add-apt-repository -y ppa:deadsnakes/ppa
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.12 python3.12-dev python3-pip python3.12-venv
+
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+    # Create a venv for evo2 using system Python
+    VENV_FOLDER="/opt/evo2_venv"
+    python3.12 -m venv "$VENV_FOLDER"
+        
+    # Activate the venv
+    . "$VENV_FOLDER/bin/activate"
+
+    # Install uv and expose it
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
+
+    uv pip install setuptools wheel psutil packaging ninja pybind11
+
+    # Install PyTorch with CUDA support
+    uv pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+    uv pip install nvidia-mathdx
+
+    # Install FlashAttention and Transformer Engine if wheels are available
+    uv pip install https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.5.4/flash_attn-2.8.3+cu128torch2.7-cp312-cp312-linux_x86_64.whl
+
+    export CUDA_PATH="/usr/local/cuda"
+    export CUDNN_PATH="/usr/local/cuda/lib64/libcudnn.h"
+    uv pip install --no-build-isolation "transformer_engine[pytorch]"
+
+    # Core scientific stack and evo2
+    uv pip install numpy pandas scipy scikit-learn matplotlib
+    uv pip install evo2
+    
+%runscript
+    #!/bin/bash
+    # Venv is already on PATH via %environment
+    exec "$@"
