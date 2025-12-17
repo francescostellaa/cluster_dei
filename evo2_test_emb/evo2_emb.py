@@ -29,7 +29,7 @@ class SequenceDataset(Dataset):
         return record.id, sequence
 
 
-def generate_embedding(model, sequence, layer_names:str, sliding_window:int):
+def generate_embedding(model, sequence, layer_names:str):
     """
     Compute embedding for a sequence using Evo2 model.
     Args:
@@ -46,7 +46,7 @@ def generate_embedding(model, sequence, layer_names:str, sliding_window:int):
         dtype=torch.int,
     ).unsqueeze(0).to('cuda')
     with torch.inference_mode():
-        output, embedding = model(tokenized_sequence, return_embeddings=True, layer_names=[layer_names])
+        _, embedding = model(tokenized_sequence, return_embeddings=True, layer_names=[layer_names])
     # Output embedding shape: [1, seq_len, 4096]
     # return tensor with shape [4096] because we mean over first axis (sequence length) and squeeze batch axis
     return torch.mean(embedding[layer_names], dim=1).squeeze(0).detach().cpu()
@@ -65,7 +65,7 @@ def get_embedding(model, sequence, layer_names, sliding_window):
     """
     sequence_length = len(sequence)
     if sequence_length < sliding_window:
-        return generate_embedding(model, sequence, layer_names, sliding_window)
+        return generate_embedding(model, sequence, layer_names)
 
     # Use sliding window approach
     embeddings = []
@@ -75,7 +75,7 @@ def get_embedding(model, sequence, layer_names, sliding_window):
         # possible window, otherwise process remaining sequence.
         window_sequence = sequence[i:min(i+sliding_window, sequence_length)]
         # generate_embedding return an embedding with shape: [4096]
-        embeddings.append(generate_embedding(model, window_sequence, layer_names, sliding_window))
+        embeddings.append(generate_embedding(model, window_sequence, layer_names))
     return torch.sum(torch.stack(embeddings), dim=0)
 
 if __name__ == "__main__":
@@ -117,7 +117,7 @@ if __name__ == "__main__":
         print(f'Processed sequence {index+1}/{len(dataset)}: ID={id[0]}, Embedding shape={embedding.shape}')
 
 
-        if index == 5:
+        if (index+1) % 4 == 0:
             np.save(os.path.join(args.output_dir, 'test_embeddings.npy'), all_embeddings)
             break
 
