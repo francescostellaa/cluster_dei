@@ -3,9 +3,8 @@ from evo2 import Evo2
 import os
 import pandas as pd
 import Bio.SeqIO as SeqIO
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 import argparse
-from torch.utils.data import Dataset
 import numpy as np
 
 
@@ -48,7 +47,7 @@ def generate_embedding(model, sequence, layer_names:str):
     with torch.inference_mode():
         _, embedding = model(tokenized_sequence, return_embeddings=True, layer_names=[layer_names])
     # Output embedding shape: [1, seq_len, 4096]
-    # return tensor with shape [4096] because we mean over first axis (sequence length) and squeeze batch axis
+    # return tensor with shape [4096] because we mean over first axis (seq_len) and squeeze batch axis
     return torch.mean(embedding[layer_names], dim=1).squeeze(0).detach().cpu()
 
 def get_embedding(model, sequence, layer_names, sliding_window):
@@ -106,7 +105,8 @@ if __name__ == "__main__":
     all_ids = []
     all_embeddings = []
     # Test dataset and dataloader
-    print(f"Total sequences found: {len(dataset)}")
+    # print(f"Total sequences found: {len(dataset)}")
+
     for index, pair in enumerate(dataloader):
         id, sequence = pair
 
@@ -114,28 +114,35 @@ if __name__ == "__main__":
         embedding = get_embedding(model, str(sequence[0]), args.layer_names, args.window_size)
         all_ids.append(id[0])
         all_embeddings.append(embedding.float())
-        print(f'Processed sequence {index+1}/{len(dataset)}: ID={id[0]}, Embedding shape={embedding.shape}')
+        # print(f'Processed sequence {index+1}/{len(dataset)}: ID={id[0]}, Embedding shape={embedding.shape}')
 
-
-        if (index+1) % 4 == 0:
-            np.save(os.path.join(args.output_dir, 'test_embeddings.npy'), all_embeddings)
+        # Save to file every 50 sequences and process first 100 sequences
+        if index == 100:
+            #np.save(os.path.join(args.output_dir, 'test_embeddings_171225.npy'), all_embeddings)
+            #all_embeddings = []
             break
 
-    # 2. Stack and Convert ONCE at the end
+    # Save remaining embeddings
+    #np.save(os.path.join(args.output_dir, 'test_embeddings_171225.npy'), all_embeddings)
+
+    # Sanity check
+    assert(len(all_ids) == len(all_embeddings)), "Error: length mismatch between IDs and Embeddings counts"
+
+    # Stack and convert to numpy array, together with IDs
     # Resulting shape: [N_sequences, 4096]
     embedding_matrix = torch.stack(all_embeddings).numpy() 
     id_array = np.array(all_ids)
 
-    # 3. Save as .npz (Compressed)
-    output_path = os.path.join(args.output_dir, 'embeddings.npz')
+    # Save as .npz for later processing
+    output_path = os.path.join(args.output_dir, 'test_embeddings_171225.npz')
     np.savez_compressed(output_path, embeddings=embedding_matrix, ids=id_array)
     print(f"Saved .npz to {output_path}")
 
-    # 4. LOAD
-    data = np.load(output_path)
-    loaded_embeds = data['embeddings']
-    loaded_ids = data['ids']
+    # # # 4. LOAD
+    # data = np.load(output_path)
+    # loaded_embeds = data['embeddings']
+    # loaded_ids = data['ids']
 
-    print(f"Matrix Shape: {loaded_embeds.shape}")
-    print(f"First Embedding Vector: {loaded_embeds[0]}")
-    print(f"First ID: {loaded_ids[0]}")
+    # print(f"Matrix Shape: {loaded_embeds.shape}")
+    # print(f"First Embedding Vector: {loaded_embeds[0]}")
+    # print(f"First ID: {loaded_ids[0]}")
