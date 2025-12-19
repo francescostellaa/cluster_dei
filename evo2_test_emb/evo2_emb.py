@@ -44,6 +44,7 @@ def generate_embedding(model, sequence, layer_names:str):
         model.tokenizer.tokenize(sequence),
         dtype=torch.int,
     ).unsqueeze(0).to('cuda')
+
     with torch.inference_mode():
         _, embedding = model(tokenized_sequence, return_embeddings=True, layer_names=[layer_names])
     # Output embedding shape: [1, seq_len, 4096]
@@ -68,13 +69,13 @@ def get_embedding(model, sequence, layer_names, sliding_window):
 
     # Use sliding window approach
     embeddings = []
-    for i in range(0, sequence_length, sliding_window):
-        # window sequence contains the subsequence for which we are going to generate the
-        # embedding. It has max value if remaning genome sequence is longer than maximum
-        # possible window, otherwise process remaining sequence.
-        window_sequence = sequence[i:min(i+sliding_window, sequence_length)]
+    stride = sliding_window // 2
+    for start in range(0, sequence_length, stride):
+        end = min(start + sliding_window, sequence_length)
+        window_sequence = sequence[start : end]
         # generate_embedding return an embedding with shape: [4096]
         embeddings.append(generate_embedding(model, window_sequence, layer_names))
+
     return torch.sum(torch.stack(embeddings), dim=0)
 
 if __name__ == "__main__":
@@ -107,20 +108,45 @@ if __name__ == "__main__":
     # Test dataset and dataloader
     # print(f"Total sequences found: {len(dataset)}")
 
-    for index, pair in enumerate(dataloader):
-        id, sequence = pair
+    output_path = os.path.join(args.output_dir, f'embeddings_171225_{len(dataset)}_{args.window_size}_{args.layer_names}.pt')
 
-        # Resulting shape = [4096]
-        embedding = get_embedding(model, str(sequence[0]), args.layer_names, args.window_size)
-        all_ids.append(id[0])
-        all_embeddings.append(embedding.float())
-        # print(f'Processed sequence {index+1}/{len(dataset)}: ID={id[0]}, Embedding shape={embedding.shape}')
+    try:
+        for index, pair in enumerate(dataloader):
+            
+            # We need to clear cache every n iterations, otherwise. 
+            if index % 100 == 0:
+                torch.cuda.empty_cache()
 
-        # Save to file every 50 sequences and process first 100 sequences
-        if index == 100:
-            #np.save(os.path.join(args.output_dir, 'test_embeddings_171225.npy'), all_embeddings)
-            #all_embeddings = []
-            break
+            id, sequence = pair
+
+            # Resulting shape = [4096]
+            embedding = get_embedding(model, str(sequence[0]), args.layer_names, args.window_size)
+            # We took item at 0 because id is a list. 
+            # Our fasta files contains only one genome each, so the lists will containonly one element
+            all_ids.append(id[0])
+            all_embeddings.append(embedding.float())
+
+            # Save progress every 50 iterations
+            if index % 100 == 0:
+                torch.save(
+                    {
+                        "ids": all_ids,
+                        "embeddings": all_embeddings,
+                    },
+                    output_path
+                )
+
+    except Exception as e:
+        # Save right before crashing
+        torch.save(
+            {
+                "ids": all_ids,
+                "embeddings": all_embeddings,
+            },
+            output_path
+        )
+        print(f"❌ Crash at index {len(all_ids)}, progress saved to {output_path}")
+        raise e
 
     # Save remaining embeddings
     #np.save(os.path.join(args.output_dir, 'test_embeddings_171225.npy'), all_embeddings)
@@ -133,16 +159,15 @@ if __name__ == "__main__":
     embedding_matrix = torch.stack(all_embeddings).numpy() 
     id_array = np.array(all_ids)
 
+    torch.save(
+        {
+            "ids": all_ids,
+            "embeddings": all_embeddings,
+        },
+        output_path
+    )
+
     # Save as .npz for later processing
-    output_path = os.path.join(args.output_dir, 'test_embeddings_171225.npz')
-    np.savez_compressed(output_path, embeddings=embedding_matrix, ids=id_array)
-    print(f"Saved .npz to {output_path}")
-
-    # # # 4. LOAD
-    # data = np.load(output_path)
-    # loaded_embeds = data['embeddings']
-    # loaded_ids = data['ids']
-
-    # print(f"Matrix Shape: {loaded_embeds.shape}")
-    # print(f"First Embedding Vector: {loaded_embeds[0]}")
-    # print(f"First ID: {loaded_ids[0]}")
+    # output_path = os.path.join(args.output_dir, f'embeddings_171225_{len(dataset)}_{args.window_size}_{args.layer_names}.npz')
+    # np.savez_compressed(output_path, embeddings=embedding_matrix, ids=id_array)
+    # print(f"Saved .npz to {output_path}")

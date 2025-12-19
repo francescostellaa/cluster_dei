@@ -1,0 +1,19 @@
+# Files
+*.out
+*.txt
+*.fa
+*.fasta
+*.sif
+*.swp
+*.err
+*.npz
+
+
+#VS Code
+.vscode
+
+# Folders
+build-temp-1164933257/
+huggingface/
+evo2_test_gen/
+genbank_test/

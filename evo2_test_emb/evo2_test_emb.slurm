@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH -J evo2_full_genome_emb
+#SBATCH -J Evo2_full_genome_emb
 #SBATCH -o evo2_test_emb/evo2_test_emb_output/output_test_emb_%j.txt
 #SBATCH -e evo2_test_emb/evo2_test_emb_err/errors_test_emb_%j.txt
-#SBATCH -t 24:00:00
+#SBATCH -t 16:00:00
 #SBATCH -n 1
 #SBATCH --mail-user francesco.stella.1@studenti.unipd.it
 #SBATCH --mail-type ALL
 #SBATCH -p allgroups
-#SBATCH --mem 120G
+#SBATCH --mem 48G
 #SBATCH --gres=gpu:l40s
 
 
@@ -19,6 +19,7 @@ mkdir -p ${PROJECT_DIR}/huggingface
 
 echo "Job started on node: $(hostname)"
 echo "Running Evo2 7 bilion test to generate embeddings..."
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # /usr/local/cuda/compat/lib/libcuda.so.1
 # Define sungularity execution command
 srun singularity exec --nv \
