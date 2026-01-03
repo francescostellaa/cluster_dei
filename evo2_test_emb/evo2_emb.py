@@ -6,7 +6,7 @@ import Bio.SeqIO as SeqIO
 from torch.utils.data import DataLoader, Dataset
 import argparse
 import numpy as np
-
+from datetime import datetime
 
 class SequenceDataset(Dataset):
     def __init__(self, fasta_dir):
@@ -28,7 +28,7 @@ class SequenceDataset(Dataset):
         return record.id, sequence
 
 
-def generate_embedding(model, sequence, layer_names:str):
+def generate_embedding(model, sequence, layer_names):
     """
     Compute embedding for a sequence using Evo2 model.
     Args:
@@ -51,7 +51,7 @@ def generate_embedding(model, sequence, layer_names:str):
     # return tensor with shape [4096] because we mean over first axis (seq_len) and squeeze batch axis
     return torch.mean(embedding[layer_names], dim=1).squeeze(0).detach().cpu()
 
-def get_embedding(model, sequence, layer_names, sliding_window):
+def get_embedding(model, sequence, layer_names, sliding_window, stride):
     """
     Return an embedding for a sequence using sliding window approach if necessary.
     It automatically manage sequences longer than sliding_window size.
@@ -69,7 +69,6 @@ def get_embedding(model, sequence, layer_names, sliding_window):
 
     # Use sliding window approach
     embeddings = []
-    stride = sliding_window // 2
     for start in range(0, sequence_length, stride):
         end = min(start + sliding_window, sequence_length)
         window_sequence = sequence[start : end]
@@ -92,6 +91,8 @@ if __name__ == "__main__":
                         help="Evo2 model name (default: evo2_7b)")
     parser.add_argument("--layer_name", type=str, default="blocks.28.mlp.l3", dest="layer_names",
                         help="Layer name to extract embeddings from (default: blocks.28.mlp.l3)")
+    parser.add_argument("--stride", type=int, default=32768, dest="stride",
+                        help="Value of the stride (default: 32768)")
     # Parse arguments
     args = parser.parse_args()
     batch_size = 1
@@ -101,15 +102,17 @@ if __name__ == "__main__":
 
     # Retrieve data from fasta files
     dataset = SequenceDataset(args.fasta_dir)
+    # Test dataset and dataloader
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
     all_ids = []
     all_embeddings = []
-    # Test dataset and dataloader
-    # print(f"Total sequences found: {len(dataset)}")
-
-    output_path = os.path.join(args.output_dir, f'embeddings_171225_{len(dataset)}_{args.window_size}_{args.layer_names}.pt')
-
+    
+    date = datetime.now()
+    # String format: date_time_dataset-length_window-size_layer-name_stride
+    output_path = os.path.join(args.output_dir, 
+                               f'embeddings_{date.year}-{date.month}-{date.day}_{date.hour}-{date.minute}-{date.second}_{len(dataset)}_{args.window_size}_{args.layer_names}_{args.stride}.pt')
+    
     try:
         for index, pair in enumerate(dataloader):
             
@@ -120,7 +123,7 @@ if __name__ == "__main__":
             id, sequence = pair
 
             # Resulting shape = [4096]
-            embedding = get_embedding(model, str(sequence[0]), args.layer_names, args.window_size)
+            embedding = get_embedding(model, str(sequence[0]), args.layer_names, args.window_size, args.stride)
             # We took item at 0 because id is a list. 
             # Our fasta files contains only one genome each, so the lists will containonly one element
             all_ids.append(id[0])
@@ -145,11 +148,8 @@ if __name__ == "__main__":
             },
             output_path
         )
-        print(f"❌ Crash at index {len(all_ids)}, progress saved to {output_path}")
+        print(f"Crash at index {len(all_ids)}, progress saved to {output_path}")
         raise e
-
-    # Save remaining embeddings
-    #np.save(os.path.join(args.output_dir, 'test_embeddings_171225.npy'), all_embeddings)
 
     # Sanity check
     assert(len(all_ids) == len(all_embeddings)), "Error: length mismatch between IDs and Embeddings counts"
@@ -166,8 +166,3 @@ if __name__ == "__main__":
         },
         output_path
     )
-
-    # Save as .npz for later processing
-    # output_path = os.path.join(args.output_dir, f'embeddings_171225_{len(dataset)}_{args.window_size}_{args.layer_names}.npz')
-    # np.savez_compressed(output_path, embeddings=embedding_matrix, ids=id_array)
-    # print(f"Saved .npz to {output_path}")

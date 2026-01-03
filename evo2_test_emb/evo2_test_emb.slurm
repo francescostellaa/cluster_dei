@@ -2,7 +2,7 @@
 #SBATCH -J Evo2_full_genome_emb
 #SBATCH -o evo2_test_emb/evo2_test_emb_output/output_test_emb_%j.txt
 #SBATCH -e evo2_test_emb/evo2_test_emb_err/errors_test_emb_%j.txt
-#SBATCH -t 16:00:00
+#SBATCH -t 24:00:00
 #SBATCH -n 1
 #SBATCH --mail-user francesco.stella.1@studenti.unipd.it
 #SBATCH --mail-type ALL
@@ -30,7 +30,7 @@ srun singularity exec --nv \
 --bind /usr/lib64/libcuda.so.1:/usr/local/cuda/lib64/stubs/libcuda.so.1 \
 --env HF_HOME=/workdir/huggingface \
 evo2-basic.sif \
-python3 evo2_test_emb/evo2_emb.py --data data --output output_emb --window_size 32768
+python3 evo2_test_emb/evo2_emb.py --data data --output output_emb --window_size 32768 --stride 32768
 #python3 evo2_test_emb/evo2_test_emb.py
 #--bind ${PROJECT_DIR}/data:/workdir/data \
 echo "Job finished."
