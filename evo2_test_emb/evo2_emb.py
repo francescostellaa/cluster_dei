@@ -77,6 +77,33 @@ def get_embedding(model, sequence, layer_names, sliding_window, stride):
 
     return torch.sum(torch.stack(embeddings), dim=0)
 
+
+def save_embeggins(all_ids, all_embeddings, output_path):
+    """
+    Return an embedding for a sequence using sliding window approach if necessary.
+    It automatically manage sequences longer than sliding_window size.
+    Args:
+        all_ids (list): list of ids
+        all_embeddigns (list): list of embeddings
+        output_path (str): string that represent the path where ids and embeddings has to be saved 
+    Returns:
+        None
+    Raise:
+        Error if something goes wrong while saving operation
+    """
+    try:
+        torch.save(
+            {
+                "ids": all_ids,
+                "embeddings": all_embeddings,
+            },
+            output_path
+        )
+    except Exception as e:
+        print("")
+        raise e
+    return
+
 if __name__ == "__main__":
 
     # Command-line argument parsing
@@ -110,14 +137,16 @@ if __name__ == "__main__":
     
     date = datetime.now()
     # String format: date_time_dataset-length_window-size_layer-name_stride
-    output_path = os.path.join(args.output_dir, 
-                               f'embeddings_{date.year}-{date.month}-{date.day}_{date.hour}-{date.minute}-{date.second}_{len(dataset)}_{args.window_size}_{args.layer_names}_{args.stride}.pt')
+    output_path = os.path.join(
+        args.output_dir, 
+        f'embeddings_{date.year}-{date.month}-{date.day}_{date.hour}-{date.minute}-{date.second}_{len(dataset)}_{args.window_size}_{args.layer_names}_{args.stride}.pt'
+    )
     
     try:
         for index, pair in enumerate(dataloader):
             
             # We need to clear cache every n iterations, otherwise. 
-            if index % 100 == 0:
+            if index % 300 == 0:
                 torch.cuda.empty_cache()
 
             id, sequence = pair
@@ -131,24 +160,11 @@ if __name__ == "__main__":
 
             # Save progress every 50 iterations
             if index % 100 == 0:
-                torch.save(
-                    {
-                        "ids": all_ids,
-                        "embeddings": all_embeddings,
-                    },
-                    output_path
-                )
+                save_embeggins(all_ids, all_embeddings, output_path)
 
     except Exception as e:
         # Save right before crashing
-        torch.save(
-            {
-                "ids": all_ids,
-                "embeddings": all_embeddings,
-            },
-            output_path
-        )
-        print(f"Crash at index {len(all_ids)}, progress saved to {output_path}")
+        save_embeggins(all_ids, all_embeddings, output_path)
         raise e
 
     # Sanity check
@@ -159,10 +175,4 @@ if __name__ == "__main__":
     embedding_matrix = torch.stack(all_embeddings).numpy() 
     id_array = np.array(all_ids)
 
-    torch.save(
-        {
-            "ids": all_ids,
-            "embeddings": all_embeddings,
-        },
-        output_path
-    )
+    save_embeggins(all_ids, all_embeddings, output_path)
