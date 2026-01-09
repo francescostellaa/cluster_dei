@@ -3,6 +3,7 @@
 *.txt
 *.fa
 *.fasta
+*.gbk
 *.sif
 *.swp
 *.err
