@@ -8,6 +8,8 @@
 *.swp
 *.err
 *.npz
+*.pt
+*.xlsx
 
 
 #VS Code
