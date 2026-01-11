@@ -8,7 +8,10 @@
 *.swp
 *.err
 *.npz
-
+*.pt
+*.xlsx
+*.png
+*.DS_Store
 
 #VS Code
 .vscode
