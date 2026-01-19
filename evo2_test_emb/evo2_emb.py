@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, Dataset
 import argparse
 import numpy as np
 from datetime import datetime
+import itertools
 
 class SequenceDataset(Dataset):
     def __init__(self, fasta_dir):
@@ -50,6 +51,7 @@ def generate_embedding(model, sequence, layer_names):
     # return tensor with shape [4096] because we mean over first axis (seq_len) and squeeze batch axis
     return torch.mean(embedding[layer_names], dim=1).squeeze(0).detach().cpu()
 
+
 def get_embedding(model, sequence, layer_names, window_size, stride, summation, embedding_list: list, starts: list, ends: list):
     """
     Compute embeddings for the provided sequence and store them into provided list, with corresponding start and end indices in the sequence 
@@ -73,7 +75,7 @@ def get_embedding(model, sequence, layer_names, window_size, stride, summation, 
         return
 
     # Use sliding window approach
-    embeddings = []
+    # embeddings = []
     for start in range(0, sequence_length, stride):
         end = min(start + window_size, sequence_length)
         window_sequence = sequence[start : end]
@@ -88,7 +90,7 @@ def get_embedding(model, sequence, layer_names, window_size, stride, summation, 
     return
 
 
-def save_embeddings(all_ids, all_embeddings, output_path, summation, all_starts=None, all_ends=None):
+def save_embeddings(all_ids, all_embeddings, output_path, summation, all_strands, all_starts=None, all_ends=None ):
     """
     Store data to specified output path.
     Args:
@@ -98,17 +100,22 @@ def save_embeddings(all_ids, all_embeddings, output_path, summation, all_starts=
         summation (int): Flag to know if the methods needs to save starts and ends
         all_stars (List): List of all start inidices for the embeddings
         all_ends (List): Llist of all end indices for the embeddings
+        all_strands (List): List of all strands for the embeddings
     Returns:
         None
     Raise:
         Error if something goes wrong while saving operation
     """
+    assert len(all_ids) == len(all_embeddings), "Length mismatch between IDs and Embeddings counts"
+    assert len(all_strands) == len(all_embeddings), "Length mismatch between Strands and Embeddings counts"
+    
     try:
         if int(summation) == int(1):
             torch.save(
                 {
                     "ids": all_ids,
                     "embeddings": all_embeddings,
+                    "strands": all_strands
                 },
                 output_path
             )
@@ -122,6 +129,7 @@ def save_embeddings(all_ids, all_embeddings, output_path, summation, all_starts=
                     "starts": all_starts,
                     "ends": all_ends,
                     "embeddings": all_embeddings,
+                    "strands": all_strands
                 },
                 output_path
             )
@@ -131,7 +139,17 @@ def save_embeddings(all_ids, all_embeddings, output_path, summation, all_starts=
         raise e
     return
 
-
+def opposite_strand(sequence: str) -> str:
+    """
+    Generate the opposite strand of a given DNA sequence.
+    Args:
+        sequence (str): The input DNA sequence.
+    Returns:
+        str: The opposite strand of the input sequence.
+    """
+    complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C', 'N': 'N'}
+    opposite = ''.join(complement.get(base, base) for base in reversed(sequence))
+    return opposite
 
 
 
@@ -153,6 +171,8 @@ if __name__ == "__main__":
                         help="Value of the stride (default: 32768)")
     parser.add_argument("--summation", type=int, default=0, dest="summation",
                         help="Return the sum of context windows' embeddings if genome length is greater than context window size (default: 0(Not Active))")
+    parser.add_argument("--strands", type=int, default=0, dest="strands",
+                        help="If parameter is 1, embedding for both strands will be computed, otherwise only provided one (default: 0)")
     # Parse arguments
     args = parser.parse_args()
     
@@ -178,30 +198,34 @@ if __name__ == "__main__":
     # Following lists will be used only if args.summation == 1
     all_starts = [] # List of all start position for each embeddings
     all_ends = []   # List of all end position for each embeddings
+    all_strands = [] # List of all strands for each embeddings
         
         
     date = datetime.now()
     # String format: date_time_dataset-length_window-size_layer-name_stride
     output_path = os.path.join(
         args.output_dir, 
-        f'embeddings_{date.year}-{date.month}-{date.day}_{date.hour}-{date.minute}-{date.second}_{len(dataset)}_{args.window_size}_{args.layer_names}_{args.stride}_{args.summation}.pt'
+        f'embeddings_{date.year}-{date.month}-{date.day}_{date.hour}-{date.minute}-{date.second}_{len(dataset)}_{args.window_size}_{args.layer_names}_{args.stride}_{args.summation}_{args.strands}.pt'
     )
     
     # TEST_LIMIT = 5
     
     try:
         for index, pair in enumerate(dataloader):
-            # TEST: Stop loop if we exceed the limit
+            # ---------------
+            # # TEST: Stop loop if we exceed the limit
             # if index >= TEST_LIMIT:
             #     print(f"\n--- Test limit of {TEST_LIMIT} reached. Stopping loop. ---")
             #     break
+            # ---------------
+            
             # We need to clear cache every n iterations, otherwise. 
-            if index % 200 == 0:
+            if index % 500 == 0:
                 torch.cuda.empty_cache()
 
             id, sequence = pair
             # List of embeddings, starting and end positions for current sequence
-            embeddings, starts, ends = [], [], []
+            embeddings, starts, ends, strands = [], [], [], []
             
             get_embedding(
                 model,
@@ -214,10 +238,28 @@ if __name__ == "__main__":
                 starts,
                 ends
             )
+            # Extend strands
+            strands.extend(itertools.repeat(1, len(embeddings)))
             
-            assert len(embeddings) != 0, "Embeddings list is empty."
-            assert len(starts) != 0, "Starts list is empty."
-            assert len(ends) != 0, "Ends list is empty."
+            if int(args.strands) == 1:
+                # Generate opposite strand
+                opp_sequence = opposite_strand(str(sequence[0]))
+                get_embedding(
+                    model,
+                    opp_sequence,
+                    args.layer_names,
+                    args.window_size,
+                    args.stride,
+                    args.summation,
+                    embeddings,
+                    starts,
+                    ends
+                )
+                # Add strands values for opposite strand. Add for half the length of embeddings list.
+                # Half because we already added the first half for the original strand
+                count = len(embeddings) // 2
+                strands.extend(itertools.repeat(-1, count))
+            
             
             # # --- TEST PRINTING ---
             # if len(embeddings) > 0:
@@ -227,6 +269,7 @@ if __name__ == "__main__":
             #     print(f'    -> Processing sequence ID: {id[0]} with length {len(sequence[0])}')
             #     print(f"    -> Start indices: {starts} with length {len(starts)}")
             #     print(f"    -> End indices: {ends} with length {len(ends)}")
+            #     print(f"    -> Strands: {strands}")
             #     print(f"    -> Shape: {first_emb.shape}") 
             #     print(f"    -> First 5 values: {first_emb[0].tolist()}...") # Print a snippet
             # else:
@@ -234,55 +277,63 @@ if __name__ == "__main__":
             # print("-" * 50)
             # # ---------------------
             
+            assert len(embeddings) != 0, "Embeddings list is empty."
+            assert len(starts) != 0, "Starts list is empty."
+            assert len(ends) != 0, "Ends list is empty."
+            assert len(strands) != 0, "Strands list is empty."
+            assert len(embeddings) == len(starts) == len(ends) == len(strands), "Length mismatch among embeddings, starts, ends, and strands lists."
+            
             # We took item at 0 because id is a list. 
             # Our fasta files contains only one genome each, so the lists will containonly one element
-            for _ in range(len(embeddings)):
-                all_ids.append(id[0])
+            # for _ in range(len(embeddings)):
+            #     all_ids.append(id[0])
+            all_ids.extend(itertools.repeat(id[0], len(embeddings)))
             all_embeddings.extend(embeddings)
             if int(args.summation) == 0:
                 all_starts.extend(starts)
                 all_ends.extend(ends)
+                
+            all_strands.extend(strands)
 
+            # --------------
+            # --- TEST STORING ---
             # if index > 0 and index % 5 == 0:
             #     save_embeddings(
             #         all_ids, 
             #         all_embeddings, 
             #         output_path, 
             #         args.summation,
+            #         all_strands,
             #         all_starts if args.summation == 0 else None,
             #         all_ends if args.summation == 0 else None
             #     )
+            # --------------
 
             # Save progress every 200 iterations
-            # if index % 200 == 0:
-            #     if int(args.summation) == int(1):
-            #         # save_embeddings(all_ids, all_embeddings, output_path, args.summation)
-            #         save_embeddings(
-            #         all_ids, 
-            #         all_embeddings, 
-            #         output_path, 
-            #         args.summation,
-            #         all_starts if args.summation == 0 else None,
-            #         all_ends if args.summation == 0 else None
-            #         )
-            #     else:
-            #         # save_embeddings(all_ids, all_embeddings, output_path, args.summation, all_starts, all_ends)
-            #         save_embeddings(
-            #         all_ids, 
-            #         all_embeddings, 
-            #         output_path, 
-            #         args.summation,
-            #         all_starts if args.summation == 0 else None,
-            #         all_ends if args.summation == 0 else None
-            #         )
+            if index % 200 == 0:
+                save_embeddings(
+                    all_ids, 
+                    all_embeddings, 
+                    output_path, 
+                    args.summation,
+                    all_strands,
+                    all_starts if args.summation == 0 else None,
+                    all_ends if args.summation == 0 else None
+                )
+            # ---------------------
                     
 
     except Exception as e:
         # Save right before crashing
-        if int(args.summation) == int(1):
-            save_embeddings(all_ids, all_embeddings, output_path, args.summation)
-        else:
-            save_embeddings(all_ids, all_embeddings, output_path, args.summation, all_starts, all_ends)
+        save_embeddings(
+                all_ids, 
+                all_embeddings, 
+                output_path, 
+                args.summation,
+                all_strands,
+                all_starts if args.summation == 0 else None,
+                all_ends if args.summation == 0 else None
+        )
         raise e
 
     # Sanity check
@@ -299,6 +350,7 @@ if __name__ == "__main__":
                 all_embeddings, 
                 output_path, 
                 args.summation,
+                all_strands,
                 all_starts if args.summation == 0 else None,
                 all_ends if args.summation == 0 else None
     )
