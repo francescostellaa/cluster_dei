@@ -12,6 +12,7 @@
 *.xlsx
 *.png
 *.DS_Store
+*.joblib
 
 #VS Code
 .vscode
