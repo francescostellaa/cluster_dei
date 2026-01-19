@@ -293,23 +293,12 @@ if __name__ == "__main__":
     embedding_matrix = torch.stack(all_embeddings).numpy() 
     id_array = np.array(all_ids)
 
-    if int(args.summation) == int(1):
-        # save_embeddings(all_ids, all_embeddings, output_path, args.summation, all_starts, all_ends)
-        save_embeddings(
-                    all_ids, 
-                    all_embeddings, 
-                    output_path, 
-                    args.summation,
-                    all_starts if args.summation == 0 else None,
-                    all_ends if args.summation == 0 else None
-        )
-    else:
-        # save_embeddings(all_ids, all_embeddings, output_path, args.summation, all_starts, all_ends)
-        save_embeddings(
-                    all_ids, 
-                    all_embeddings, 
-                    output_path, 
-                    args.summation,
-                    all_starts if args.summation == 0 else None,
-                    all_ends if args.summation == 0 else None
-        )
+
+    save_embeddings(
+                all_ids, 
+                all_embeddings, 
+                output_path, 
+                args.summation,
+                all_starts if args.summation == 0 else None,
+                all_ends if args.summation == 0 else None
+    )
