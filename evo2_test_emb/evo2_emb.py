@@ -310,16 +310,16 @@ if __name__ == "__main__":
             # --------------
 
             # Save progress every 200 iterations
-            if index % 200 == 0:
-                save_embeddings(
-                    all_ids, 
-                    all_embeddings, 
-                    output_path, 
-                    args.summation,
-                    all_strands,
-                    all_starts if args.summation == 0 else None,
-                    all_ends if args.summation == 0 else None
-                )
+            # if index % 200 == 0:
+            #     save_embeddings(
+            #         all_ids, 
+            #         all_embeddings, 
+            #         output_path, 
+            #         args.summation,
+            #         all_strands,
+            #         all_starts if args.summation == 0 else None,
+            #         all_ends if args.summation == 0 else None
+            #     )
             # ---------------------
                     
 
