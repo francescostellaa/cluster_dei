@@ -1,15 +1,14 @@
 #!/bin/bash
-#SBATCH -J Evo2_stride_16384_no_sum_
+#SBATCH -J Evo2_No_Prot
 #SBATCH -o evo2_test_emb/evo2_test_emb_output/output_test_emb_%j.txt
 #SBATCH -e evo2_test_emb/evo2_test_emb_err/errors_test_emb_%j.txt
-#SBATCH -t 2-00:00:00
+#SBATCH -t 24:00:00
 #SBATCH -n 1
 #SBATCH --mail-user francesco.stella.1@studenti.unipd.it
 #SBATCH --mail-type ALL
 #SBATCH -p allgroups
 #SBATCH --mem 64G
 #SBATCH --gres=gpu:l40s
-
 
 PROJECT_DIR="/nfsd/biogenomica/stellafran"
 
@@ -30,7 +29,7 @@ srun singularity exec --nv \
 --bind /usr/lib64/libcuda.so.1:/usr/local/cuda/lib64/stubs/libcuda.so.1 \
 --env HF_HOME=/workdir/huggingface \
 evo2-basic.sif \
-python3 evo2_test_emb/evo2_emb.py --data data --output output_emb --window_size 32768 --stride 16384 --summation 0 --strands 1
+python3 evo2_test_emb/evo2_emb.py --data data/data_fasta --output output_emb --window_size 32768 --stride 16384 --summation 0 --strands 0 --gbk data/data_gbk
 
 #--bind ${PROJECT_DIR}/data:/workdir/data \
 echo "Job finished."

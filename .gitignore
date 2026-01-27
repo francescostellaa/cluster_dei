@@ -13,9 +13,9 @@
 *.png
 *.DS_Store
 *.joblib
-
 #VS Code
 .vscode
+Genbank_data/
 
 # Folders
 build-temp-1164933257/
