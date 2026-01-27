@@ -7,6 +7,65 @@ import argparse
 import numpy as np
 from datetime import datetime
 import itertools
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+from pathlib import Path
+
+VERBOSE = False
+
+def remove_known_proteins(sequence, gbk_file):
+    """
+    Scans a GBK file for CDS features. if the product is NOT 'hypothetical protein',
+    it removes that region from the sequence.
+    
+    Args:
+        sequence (str): The input DNA sequence (from FASTA).
+        gbk_file (str): Path to the corresponding GenBank file.
+        
+    Returns:
+        str: The sequence with known protein regions removed.
+    """
+    # Create a boolean mask of the same length as the sequence (True = keep, False = remove)
+    seq_len = len(sequence)
+    mask = np.ones(seq_len, dtype=bool)
+    if VERBOSE:
+        print(f"Length of sequence with known proteins: {seq_len}")
+    try:
+        # Parse the GenBank file
+        # We assume the GenBank sequence aligns with the FASTA sequence
+        for record in SeqIO.parse(gbk_file, "genbank"):
+            for feature in record.features:
+                if feature.type == "CDS":
+                    # Get the product name safely
+                    product = feature.qualifiers.get("product", ["None"])[0].lower().strip()
+                    
+                    # Logic: If it is NOT a hypothetical protein, we treat it as "known" and remove it
+                    if product and "hypothetical protein" not in product:
+                        # BioPython locations are 0-based, exact slice indices
+                        start = int(feature.location.start)
+                        end = int(feature.location.end)
+                        
+                        # Ensure we don't go out of bounds if FASTA/GBK lengths differ slightly
+                        start = max(0, start)
+                        end = min(seq_len, end)
+                        
+                        # Mark this region for removal
+                        if start < end:
+                            mask[start:end] = False
+                            
+        # Reconstruct the sequence keeping only the True positions
+        seq_array = np.array(list(sequence))
+        cleaned_sequence = "".join(seq_array[mask])
+        if VERBOSE:
+            print(f"Length of sequence without known proteins: {len(cleaned_sequence)}")
+        
+        return str(cleaned_sequence)
+
+    except Exception as e:
+        print(f"Warning: Failed to process GBK file {gbk_file}. Using original sequence. Error: {e}")
+        return str(sequence)
+
+
 
 class SequenceDataset(Dataset):
     def __init__(self, fasta_dir):
@@ -173,6 +232,8 @@ if __name__ == "__main__":
                         help="Return the sum of context windows' embeddings if genome length is greater than context window size (default: 0(Not Active))")
     parser.add_argument("--strands", type=int, default=0, dest="strands",
                         help="If parameter is 1, embedding for both strands will be computed, otherwise only provided one (default: 0)")
+    parser.add_argument("--gbk", dest="gbk_dir",
+                        help="Input directory containing GenBank files", metavar="DIR")
     # Parse arguments
     args = parser.parse_args()
     
@@ -180,7 +241,7 @@ if __name__ == "__main__":
     
     assert args.stride <= args.window_size, "stride must be <= window_size"
     batch_size = 1
-
+    
     # Initialize the model and move it to the GPU
     model = Evo2(args.model_name)
 
@@ -208,28 +269,41 @@ if __name__ == "__main__":
         f'embeddings_{date.year}-{date.month}-{date.day}_{date.hour}-{date.minute}-{date.second}_{len(dataset)}_{args.window_size}_{args.layer_names}_{args.stride}_{args.summation}_{args.strands}.pt'
     )
     
-    # TEST_LIMIT = 5
+    TEST_LIMIT = 5
     
     try:
         for index, pair in enumerate(dataloader):
-            # ---------------
-            # # TEST: Stop loop if we exceed the limit
-            # if index >= TEST_LIMIT:
-            #     print(f"\n--- Test limit of {TEST_LIMIT} reached. Stopping loop. ---")
-            #     break
-            # ---------------
+
+            # TEST: Stop loop if we exceed the limit
+            if VERBOSE:
+                if TEST_LIMIT and index >= TEST_LIMIT:
+                    print(f"\n--- Test limit of {TEST_LIMIT} reached. Stopping loop. ---", flush=True)
+                    break
             
             # We need to clear cache every n iterations, otherwise. 
             if index % 500 == 0:
                 torch.cuda.empty_cache()
 
             id, sequence = pair
+            sequence = str(sequence[0])
             # List of embeddings, starting and end positions for current sequence
             embeddings, starts, ends, strands = [], [], [], []
-            
+
+            if args.gbk_dir:
+                # Assume GBK filename matches the FASTA ID
+                gbk_path = os.path.join(args.gbk_dir, f"{(id[0].split('.')[0]).strip()}.gbk")
+
+                if os.path.exists(gbk_path):
+                    # Filter the sequence
+                    sequence = remove_known_proteins(sequence, gbk_path)      
+                    if len(sequence) == 0:
+                        print(f"Skipping {id[0]}: Empty after filtering.")
+                        continue
+
+
             get_embedding(
                 model,
-                str(sequence[0]),
+                sequence,
                 args.layer_names,
                 args.window_size,
                 args.stride,
@@ -243,7 +317,7 @@ if __name__ == "__main__":
             
             if int(args.strands) == 1:
                 # Generate opposite strand
-                opp_sequence = opposite_strand(str(sequence[0]))
+                opp_sequence = opposite_strand(sequence)
                 get_embedding(
                     model,
                     opp_sequence,
@@ -261,21 +335,22 @@ if __name__ == "__main__":
                 strands.extend(itertools.repeat(-1, count))
             
             
-            # # --- TEST PRINTING ---
-            # if len(embeddings) > 0:
-            #     # Check shape of first chunk
-            #     first_emb = embeddings[0]
-            #     print(f"    -> Chunks generated: {len(embeddings)}")
-            #     print(f'    -> Processing sequence ID: {id[0]} with length {len(sequence[0])}')
-            #     print(f"    -> Start indices: {starts} with length {len(starts)}")
-            #     print(f"    -> End indices: {ends} with length {len(ends)}")
-            #     print(f"    -> Strands: {strands}")
-            #     print(f"    -> Shape: {first_emb.shape}") 
-            #     print(f"    -> First 5 values: {first_emb[0].tolist()}...") # Print a snippet
-            # else:
-            #     print(f"    -> NO EMBEDDINGS GENERATED")
-            # print("-" * 50)
-            # # ---------------------
+            # --- TEST PRINTING ---
+            if VERBOSE:
+                if len(embeddings) > 0:
+                    # Check shape of first chunk
+                    first_emb = embeddings[0]
+                    print(f"    -> Chunks generated: {len(embeddings)}", flush=True)
+                    print(f'    -> Processing sequence ID: {id[0]} with length {len(sequence)}', flush=True)
+                    print(f"    -> Start indices: {starts} with length {len(starts)}", flush=True)
+                    print(f"    -> End indices: {ends} with length {len(ends)}", flush=True)
+                    print(f"    -> Strands: {strands}", flush=True)
+                    print(f"    -> Shape: {first_emb.shape}", flush=True) 
+                    print(f"    -> First 5 values: {first_emb[0].tolist()}...", flush=True) # Print a snippet
+                else:
+                    print(f"    -> NO EMBEDDINGS GENERATED")
+                print("-" * 50)
+            # ---------------------
             
             assert len(embeddings) != 0, "Embeddings list is empty."
             assert len(starts) != 0, "Starts list is empty."
@@ -297,16 +372,17 @@ if __name__ == "__main__":
 
             # --------------
             # --- TEST STORING ---
-            # if index > 0 and index % 5 == 0:
-            #     save_embeddings(
-            #         all_ids, 
-            #         all_embeddings, 
-            #         output_path, 
-            #         args.summation,
-            #         all_strands,
-            #         all_starts if args.summation == 0 else None,
-            #         all_ends if args.summation == 0 else None
-            #     )
+            if VERBOSE:
+                if index > 0 and index % 5 == 0:
+                    save_embeddings(
+                        all_ids, 
+                        all_embeddings, 
+                        output_path, 
+                        args.summation,
+                        all_strands,
+                        all_starts if args.summation == 0 else None,
+                        all_ends if args.summation == 0 else None
+                    )
             # --------------
 
             # Save progress every 200 iterations
