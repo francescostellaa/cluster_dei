@@ -11,7 +11,76 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from pathlib import Path
 
+# Global variable for debug purposes
 VERBOSE = False
+
+
+def filter_protein_regions(sequence, gbk_file, keep_known_proteins=False):
+    """
+    Filters a DNA sequence based on CDS features in a GenBank file.
+    
+    Args:
+        sequence (str): The input DNA sequence.
+        gbk_file (str): Path to the GenBank file.
+        keep_known_proteins (bool): 
+            If False (default): Removes known proteins (keeps hypothetical/junk).
+            If True: Keeps ONLY known proteins (removes hypothetical/junk).
+        verbose (bool): Prints sequence length changes.
+    """
+    seq_len = len(sequence)
+    
+    # Start with a mask where True = "This is a Known Protein"
+    # Initialize to False (assume nothing is a known protein yet)
+    known_protein_mask = np.zeros(seq_len, dtype=bool)
+
+    try:
+        if VERBOSE:
+            print(f"Original sequence length: {seq_len}")
+            print(f"Mode: {'KEEP only known proteins' if keep_known_proteins else 'REMOVE known proteins'}")
+
+        # Parse GenBank to find known proteins
+        for record in SeqIO.parse(gbk_file, "genbank"):
+            for feature in record.features:
+                if feature.type == "CDS":
+                    product = feature.qualifiers.get("product", ["None"])[0].lower().strip()
+                    
+                    # Logic: Identify "Known Proteins"
+                    if product and "hypothetical protein" not in product:
+                        start = int(feature.location.start)
+                        end = int(feature.location.end)
+                        
+                        # Bounds check
+                        start = max(0, start)
+                        end = min(seq_len, end)
+                        
+                        if start < end:
+                            # Mark this region as a Known Protein
+                            known_protein_mask[start:end] = True
+
+        # Apply the Flag Logic
+        if keep_known_proteins:
+            # We want ONLY the known proteins. The mask is already correct.
+            final_mask = known_protein_mask
+        else:
+            # We want everything EXCEPT known proteins. Invert the mask.
+            final_mask = ~known_protein_mask
+
+        # Apply mask to sequence
+        seq_array = np.array(list(sequence))
+        cleaned_sequence = "".join(seq_array[final_mask])
+
+        if VERBOSE:
+            print(f"Final sequence length: {len(cleaned_sequence)}")
+        
+        return str(cleaned_sequence)
+
+    except Exception as e:
+        print(f"Warning: Failed to process GBK file {gbk_file}. Error: {e}")
+        return str(sequence)    
+    
+    
+    
+    
 
 def remove_known_proteins(sequence, gbk_file):
     """
@@ -234,8 +303,14 @@ if __name__ == "__main__":
                         help="If parameter is 1, embedding for both strands will be computed, otherwise only provided one (default: 0)")
     parser.add_argument("--gbk", dest="gbk_dir",
                         help="Input directory containing GenBank files", metavar="DIR")
+    parser.add_argument("--keep_known_proteins", action="store_true", dest="keep_known_proteins",
+                        help="If set, keeps ONLY known proteins and discards the rest."
+                        "If omitted (default), removes known proteins and keeps the rest.")
     # Parse arguments
     args = parser.parse_args()
+    
+    if args.keep_known_proteins and not args.gbk_dir:
+        parser.error("--keep_known_proteins requires --gbk to be specified.")
     
     os.makedirs(args.output_dir, exist_ok=True)
     
@@ -291,11 +366,11 @@ if __name__ == "__main__":
 
             if args.gbk_dir:
                 # Assume GBK filename matches the FASTA ID
-                gbk_path = os.path.join(args.gbk_dir, f"{(id[0].split('.')[0]).strip()}.gbk")
-
-                if os.path.exists(gbk_path):
+                gbk_file = os.path.join(args.gbk_dir, f"{(id[0].split('.')[0]).strip()}.gbk")
+                if os.path.exists(gbk_file):
                     # Filter the sequence
-                    sequence = remove_known_proteins(sequence, gbk_path)      
+                    # sequence = remove_known_proteins(sequence, gbk_file)   
+                    sequence = filter_protein_regions(sequence, gbk_file, args.keep_known_proteins)
                     if len(sequence) == 0:
                         print(f"Skipping {id[0]}: Empty after filtering.")
                         continue
@@ -370,7 +445,6 @@ if __name__ == "__main__":
                 
             all_strands.extend(strands)
 
-            # --------------
             # --- TEST STORING ---
             if VERBOSE:
                 if index > 0 and index % 5 == 0:
@@ -382,22 +456,8 @@ if __name__ == "__main__":
                         all_strands,
                         all_starts if args.summation == 0 else None,
                         all_ends if args.summation == 0 else None
-                    )
+                    )        
             # --------------
-
-            # Save progress every 200 iterations
-            # if index % 200 == 0:
-            #     save_embeddings(
-            #         all_ids, 
-            #         all_embeddings, 
-            #         output_path, 
-            #         args.summation,
-            #         all_strands,
-            #         all_starts if args.summation == 0 else None,
-            #         all_ends if args.summation == 0 else None
-            #     )
-            # ---------------------
-                    
 
     except Exception as e:
         # Save right before crashing
