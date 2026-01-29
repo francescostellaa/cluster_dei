@@ -16,6 +16,9 @@
 #VS Code
 .vscode
 Genbank_data/
+*/.ipynb_checkpoints/
+guidelines.txt
+__pycache__/
 
 # Folders
 build-temp-1164933257/
