@@ -15,7 +15,7 @@ from pathlib import Path
 VERBOSE = False
 
 
-def filter_protein_regions(sequence, gbk_file, keep_known_proteins=False):
+def filter_protein_regions(sequence: str, gbk_file, keep_known_proteins=False, tail_erase_size=0):
     """
     Filters a DNA sequence based on CDS features in a GenBank file.
     
@@ -25,7 +25,7 @@ def filter_protein_regions(sequence, gbk_file, keep_known_proteins=False):
         keep_known_proteins (bool): 
             If False (default): Removes known proteins (keeps hypothetical/junk).
             If True: Keeps ONLY known proteins (removes hypothetical/junk).
-        verbose (bool): Prints sequence length changes.
+        tail_erase_size (int): Number of bases to remove from the start and end of known protein regions (default: 0).
     """
     seq_len = len(sequence)
     
@@ -54,7 +54,11 @@ def filter_protein_regions(sequence, gbk_file, keep_known_proteins=False):
                         end = min(seq_len, end)
                         
                         if start < end:
-                            # Mark this region as a Known Protein
+                            # Mark this region as a Known Protein.
+                            # If tail_erase_size > 0, then enlarge the masked region if possible
+                            if tail_erase_size > 0:
+                                start = max(0, start - tail_erase_size)
+                                end = min(seq_len, end + tail_erase_size)
                             known_protein_mask[start:end] = True
 
         # Apply the Flag Logic
@@ -306,6 +310,8 @@ if __name__ == "__main__":
     parser.add_argument("--keep_known_proteins", action="store_true", dest="keep_known_proteins",
                         help="If set, keeps ONLY known proteins and discards the rest."
                         "If omitted (default), removes known proteins and keeps the rest.")
+    parser.add_argument("--tail_erase_size", type=int, default=0, dest="tail_erase_size",
+                        help="Number of bases to remove from the start and end of known protein regions (default: 0, no tail erasing)")
     # Parse arguments
     args = parser.parse_args()
     
@@ -370,11 +376,10 @@ if __name__ == "__main__":
                 if os.path.exists(gbk_file):
                     # Filter the sequence
                     # sequence = remove_known_proteins(sequence, gbk_file)   
-                    sequence = filter_protein_regions(sequence, gbk_file, args.keep_known_proteins)
+                    sequence = filter_protein_regions(sequence, gbk_file, args.keep_known_proteins, args.tail_erase_size)
                     if len(sequence) == 0:
                         print(f"Skipping {id[0]}: Empty after filtering.")
                         continue
-
 
             get_embedding(
                 model,
