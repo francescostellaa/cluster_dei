@@ -347,7 +347,7 @@ if __name__ == "__main__":
     # String format: date_time_dataset-length_window-size_layer-name_stride
     output_path = os.path.join(
         args.output_dir, 
-        f'embeddings_{date.year}-{date.month}-{date.day}_{date.hour}-{date.minute}-{date.second}_{len(dataset)}_{args.window_size}_{args.layer_names}_{args.stride}_{args.summation}_{args.strands}.pt'
+        f'embeddings_{date.year}-{date.month}-{date.day}_{date.hour}-{date.minute}-{date.second}_{len(dataset)}_{args.window_size}_{args.layer_names}_{args.stride}_{args.summation}_{args.strands}_{args.tail_erase_size}.pt'
     )
     
     TEST_LIMIT = 5
